@@ -42,6 +42,8 @@ def annotations(root):
                         continue
                     try:
                         payload = json.loads(row['serialized_payload'])
+                        if not isinstance(payload, dict):
+                            raise ValueError('Annotation payload must be an object')
                         if payload.get('type') != 'HIGHLIGHT':
                             continue
                         book = payload['book_data']

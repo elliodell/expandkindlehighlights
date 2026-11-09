@@ -27,6 +27,27 @@ class MacTests(unittest.TestCase):
                             {'type': 1, 'position': 3, 'content': 'defghi'}], 0, 8)
         self.assertEqual(''.join(s['text'] for s in result['segments']), 'abcdefghi')
 
+    def test_non_object_payloads_do_not_abort_inventory(self):
+        valid_payload = json.dumps(dict(type='HIGHLIGHT', book_data={'asin': 'TEST'},
+                                        start_position={'shortPosition': 5},
+                                        end_position={'shortPosition': 10}, position_type=0))
+        for table in ['server_view', 'nonsyncable_annotations']:
+            for payload in [None, True, False, 0, 1.5, 'text', [], ['HIGHLIGHT']]:
+                with self.subTest(table=table, payload=payload), tempfile.TemporaryDirectory() as d:
+                    root = Path(d)
+                    folder = root / 'KSDK' / 'account'
+                    folder.mkdir(parents=True)
+                    with sqlite3.connect(folder / 'ksdk_annotation_v1.db') as db:
+                        db.execute(f'CREATE TABLE {table} (dataset_id TEXT, annotation_id TEXT, serialized_payload TEXT)')
+                        db.executemany(f'INSERT INTO {table} VALUES (?,?,?)', [
+                            ('book', 'malformed', json.dumps(payload)),
+                            ('book', 'valid', valid_payload),
+                        ])
+                    report = build_report(root)
+                    self.assertEqual(report['highlight_count'], 1)
+                    self.assertEqual(report['highlights'][0]['id'], 'valid')
+                    self.assertEqual(report['warnings'], ['An unsupported annotation record was skipped.'])
+
     def test_modern_dedup_and_pending(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
