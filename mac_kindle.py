@@ -49,7 +49,8 @@ def annotations(root):
                         book = payload['book_data']
                         start = payload['start_position']['shortPosition']
                         end = payload['end_position']['shortPosition']
-                        if not isinstance(start, int) or not isinstance(end, int) or end < start:
+                        # JSON booleans are not positions, despite bool being an int subclass.
+                        if type(start) is not int or type(end) is not int or start < 0 or end < start:
                             raise ValueError('Invalid position range')
                         records[ident] = dict(id=row['annotation_id'], asin=book['asin'],
                                              content_type=book.get('contentType'), start=start, end=end,

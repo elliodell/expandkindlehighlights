@@ -3,6 +3,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from mac_kindle import annotations, cut_range, build_report
 
 class MacTests(unittest.TestCase):
@@ -46,6 +47,37 @@ class MacTests(unittest.TestCase):
                     report = build_report(root)
                     self.assertEqual(report['highlight_count'], 1)
                     self.assertEqual(report['highlights'][0]['id'], 'valid')
+                    self.assertEqual(report['warnings'], ['An unsupported annotation record was skipped.'])
+
+    def test_invalid_short_positions_do_not_abort_recovery(self):
+        invalid_ranges = [(-1, 5), (-2, -1), (5, 4), (False, 5), (0, True),
+                          (None, 5), (0, None), ('0', 5), (0, 1.5)]
+        for table in ['server_view', 'nonsyncable_annotations']:
+            for start, end in invalid_ranges:
+                with self.subTest(table=table, start=start, end=end), tempfile.TemporaryDirectory() as d:
+                    root = Path(d)
+                    folder = root / 'KSDK' / 'account'
+                    folder.mkdir(parents=True)
+                    book = root / 'eBooks' / 'TEST' / 'book.azw8'
+                    book.parent.mkdir(parents=True)
+                    book.touch()
+                    valid = dict(type='HIGHLIGHT', book_data={'asin': 'TEST'},
+                                 start_position={'shortPosition': 0},
+                                 end_position={'shortPosition': 0}, position_type=0)
+                    invalid = dict(valid, start_position={'shortPosition': start},
+                                   end_position={'shortPosition': end})
+                    with sqlite3.connect(folder / 'ksdk_annotation_v1.db') as db:
+                        db.execute(f'CREATE TABLE {table} (dataset_id TEXT, annotation_id TEXT, serialized_payload TEXT)')
+                        db.executemany(f'INSERT INTO {table} VALUES (?,?,?)', [
+                            ('book', 'invalid', json.dumps(invalid)),
+                            ('book', 'valid', json.dumps(valid)),
+                        ])
+                    with patch('mac_kindle.decode', return_value=[{'type': 1, 'position': 0, 'content': 'Hello'}]):
+                        report = build_report(root, recover=True)
+                    self.assertEqual(report['highlight_count'], 1)
+                    self.assertEqual(report['highlights'][0]['id'], 'valid')
+                    self.assertEqual(report['highlights'][0]['status'], 'recovered_range')
+                    self.assertEqual(report['highlights'][0]['text'], 'H')
                     self.assertEqual(report['warnings'], ['An unsupported annotation record was skipped.'])
 
     def test_modern_dedup_and_pending(self):
