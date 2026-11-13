@@ -80,6 +80,27 @@ class MacTests(unittest.TestCase):
                     self.assertEqual(report['highlights'][0]['text'], 'H')
                     self.assertEqual(report['warnings'], ['An unsupported annotation record was skipped.'])
 
+    def test_invalid_legacy_ranges_do_not_abort_recovery(self):
+        for start, end in [(-1, 5), (5, 4), (None, 5), (0, None), ('bad', 5), (0, 1.5)]:
+            with self.subTest(start=start, end=end), tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                book = root / 'eBooks' / 'TEST' / 'book.azw8'
+                book.parent.mkdir(parents=True)
+                book.touch()
+                with sqlite3.connect(root / 'AnnotationStorage') as db:
+                    db.execute('CREATE TABLE ZANNOTATION (Z_PK INTEGER, ZRAWANNOTATIONTYPE TEXT, '
+                               'ZRAWBOOKID TEXT, ZRAWSTART, ZRAWEND, ZLONGSTART, ZLONGEND)')
+                    db.executemany('INSERT INTO ZANNOTATION VALUES (?,?,?,?,?,?,?)', [
+                        (1, 'highlight', 'A:TEST-EBOK', start, end, None, None),
+                        (2, 'highlight', 'A:TEST-EBOK', 0, 0, None, None),
+                    ])
+                with patch('mac_kindle.decode', return_value=[{'type': 1, 'position': 0, 'content': 'Hello'}]):
+                    report = build_report(root, recover=True)
+                self.assertEqual(report['highlight_count'], 1)
+                self.assertEqual(report['highlights'][0]['id'], '2')
+                self.assertEqual(report['highlights'][0]['text'], 'H')
+                self.assertEqual(report['warnings'], ['An unsupported annotation record was skipped.'])
+
     def test_modern_dedup_and_pending(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

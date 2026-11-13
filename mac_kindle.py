@@ -63,10 +63,14 @@ def annotations(root):
     if not databases and (root / 'AnnotationStorage').exists():
         with contextlib.closing(snapshot(root / 'AnnotationStorage')) as db:
             for row in db.execute("SELECT * FROM ZANNOTATION WHERE ZRAWANNOTATIONTYPE='highlight'"):
+                start, end = row['ZRAWSTART'], row['ZRAWEND']
+                if type(start) is not int or type(end) is not int or start < 0 or end < start:
+                    warnings.append('An unsupported annotation record was skipped.')
+                    continue
                 book = row['ZRAWBOOKID'] or ''
                 asin = book.removeprefix('A:').rsplit('-', 1)[0]
                 records[('legacy', row['Z_PK'])] = dict(id=str(row['Z_PK']), asin=asin,
-                    start=row['ZRAWSTART'], end=row['ZRAWEND'], position_type=None,
+                    start=start, end=end, position_type=None,
                     start_long=row['ZLONGSTART'], end_long=row['ZLONGEND'],
                     database=str(root / 'AnnotationStorage'), table='ZANNOTATION')
     return list(records.values()), sorted(set(warnings))
